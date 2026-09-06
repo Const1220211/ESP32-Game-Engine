@@ -373,68 +373,54 @@ void loadGameFromSD(String filename) {
 
 // ===== WEB SERVER HANDLERS =====
 void handleRoot() {
-  String html = R"(
-<!DOCTYPE html>
-<html>
-<head>
-  <title>ESP32 Game Engine</title>
-  <style>
-    body { font-family: Arial; margin: 20px; background: #222; color: #fff; }
-    .container { max-width: 600px; margin: auto; }
-    h1 { color: #ffff00; }
-    .button { 
-      background: #0080ff; 
-      color: white; 
-      padding: 10px 20px; 
-      border: none; 
-      border-radius: 5px; 
-      cursor: pointer; 
-      margin: 10px 0;
-      font-size: 16px;
-    }
-    .button:hover { background: #0060cc; }
-    .upload-form { background: #333; padding: 20px; border-radius: 5px; margin: 20px 0; }
-    input[type="file"] { margin: 10px 0; }
-    .file-list { background: #333; padding: 10px; border-radius: 5px; margin: 20px 0; }
-    .file-item { padding: 10px; background: #444; margin: 5px 0; border-radius: 3px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>🎮 ESP32 Game Engine</h1>
-    
-    <div class="upload-form">
-      <h2>Upload Game</h2>
-      <form method="POST" action="/upload" enctype="multipart/form-data">
-        <input type="file" name="game" accept=".bin,.hex,.elf" required>
-        <button class="button" type="submit">Upload</button>
-      </form>
-    </div>
-    
-    <div class="file-list">
-      <h2>Loaded Games</h2>
-      <button class="button" onclick="loadList()">Refresh</button>
-      <div id="gamesList"></div>
-    </div>
-  </div>
-  
-  <script>
-    function loadList() {
-      fetch('/list')
-        .then(r => r.json())
-        .then(games => {
-          let html = '';
-          games.forEach(game => {
-            html += `<div class="file-item">📦 ${game.name} (${game.size} bytes)</div>`;
-          });
-          document.getElementById('gamesList').innerHTML = html || '<p>No games found</p>';
-        });
-    }
-    loadList();
-  </script>
-</body>
-</html>
-  )";
+  String html = "<!DOCTYPE html>";
+  html += "<html>";
+  html += "<head>";
+  html += "<title>ESP32 Game Engine</title>";
+  html += "<style>";
+  html += "body { font-family: Arial; margin: 20px; background: #222; color: #fff; }";
+  html += ".container { max-width: 600px; margin: auto; }";
+  html += "h1 { color: #ffff00; }";
+  html += ".button { background: #0080ff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 10px 0; font-size: 16px; }";
+  html += ".button:hover { background: #0060cc; }";
+  html += ".upload-form { background: #333; padding: 20px; border-radius: 5px; margin: 20px 0; }";
+  html += "input[type='file'] { margin: 10px 0; }";
+  html += ".file-list { background: #333; padding: 10px; border-radius: 5px; margin: 20px 0; }";
+  html += ".file-item { padding: 10px; background: #444; margin: 5px 0; border-radius: 3px; }";
+  html += "</style>";
+  html += "</head>";
+  html += "<body>";
+  html += "<div class='container'>";
+  html += "<h1>Game Engine</h1>";
+  html += "<div class='upload-form'>";
+  html += "<h2>Upload Game</h2>";
+  html += "<form method='POST' action='/upload' enctype='multipart/form-data'>";
+  html += "<input type='file' name='game' required>";
+  html += "<button class='button' type='submit'>Upload</button>";
+  html += "</form>";
+  html += "</div>";
+  html += "<div class='file-list'>";
+  html += "<h2>Games</h2>";
+  html += "<button class='button' onclick='loadList()'>Refresh</button>";
+  html += "<div id='gamesList'></div>";
+  html += "</div>";
+  html += "</div>";
+  html += "<script>";
+  html += "function loadList() {";
+  html += "  fetch('/list')";
+  html += "    .then(r => r.json())";
+  html += "    .then(games => {";
+  html += "      let h = '';";
+  html += "      games.forEach(g => {";
+  html += "        h += '<div class=\"file-item\">' + g.name + ' (' + g.size + ' bytes)</div>';";
+  html += "      });";
+  html += "      document.getElementById('gamesList').innerHTML = h || '<p>No games</p>';";
+  html += "    });";
+  html += "}";
+  html += "loadList();";
+  html += "</script>";
+  html += "</body>";
+  html += "</html>";
   
   server.send(200, "text/html", html);
 }
@@ -450,7 +436,11 @@ void handleGamesList() {
     while (file) {
       if (!file.isDirectory()) {
         if (!first) json += ",";
-        json += "{\"name\":\"" + String(file.name()) + "\",\"size\":" + file.size() + "}";
+        json += "{\"name\":\"";
+        json += file.name();
+        json += "\",\"size\":";
+        json += file.size();
+        json += "}";
         first = false;
       }
       file = root.openNextFile();
@@ -474,7 +464,6 @@ void handleUpload() {
     Serial.printf("[WEB] Upload started: %s\n", filename.c_str());
   }
   else if (upload.status == UPLOAD_FILE_WRITE) {
-    // Handle file write
     Serial.printf("[WEB] Uploading: %d bytes\n", upload.currentSize);
   }
   else if (upload.status == UPLOAD_FILE_END) {
