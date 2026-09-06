@@ -1,5 +1,4 @@
 #include <SPI.h>
-#include <TFT_eSPI.h>
 #include <SD.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -15,6 +14,42 @@
 #define TFT_SCK    12   // SCK (SPI)
 #define TFT_MISO   13   // MISO (SPI)
 #define TFT_BL     4    // Backlight
+
+// Display resolution (128x160 for this display model)
+#define SCREEN_WIDTH  128
+#define SCREEN_HEIGHT 160
+
+// ST7735S Commands
+#define ST7735_SWRESET 0x01
+#define ST7735_SLPOUT  0x11
+#define ST7735_INVON   0x21
+#define ST7735_DISPON  0x29
+#define ST7735_CASET   0x2A
+#define ST7735_RASET   0x2B
+#define ST7735_RAMWR   0x2C
+#define ST7735_MADCTL  0x36
+#define ST7735_COLMOD  0x3A
+#define ST7735_FRMCTR1 0xB1
+#define ST7735_INVCTR  0xB4
+#define ST7735_PWCTR1  0xC0
+#define ST7735_PWCTR2  0xC1
+#define ST7735_PWCTR3  0xC2
+#define ST7735_PWCTR4  0xC3
+#define ST7735_PWCTR5  0xC4
+#define ST7735_VMCTR1  0xC5
+#define ST7735_GMCTRP1 0xE0
+#define ST7735_GMCTRN1 0xE1
+
+// Color definitions
+#define TFT_BLACK   0x0000
+#define TFT_WHITE   0xFFFF
+#define TFT_RED     0xF800
+#define TFT_GREEN   0x07E0
+#define TFT_BLUE    0x001F
+#define TFT_YELLOW  0xFFE0
+#define TFT_CYAN    0x07FF
+#define TFT_MAGENTA 0xF81F
+#define TFT_DARKGREY 0x4208
 
 // ===== SD CARD CONFIGURATION =====
 #define SD_CS      10   // SD Card Chip Select
@@ -37,7 +72,6 @@ const char KEYPAD_KEYS[4][4] = {
 };
 
 // ===== GLOBAL VARIABLES =====
-TFT_eSPI tft = TFT_eSPI();
 WebServer server(80);
 volatile bool gameRunning = false;
 volatile bool sdCardReady = false;
@@ -67,6 +101,273 @@ JoystickData joystick;
 const int JOYSTICK_DEADZONE = 300;
 const int JOYSTICK_THRESHOLD = 2000;
 
+// ===== ST7735S DISPLAY CLASS =====
+class ST7735Display {
+private:
+  SPIClass* spi;
+  
+  void writeCommand(uint8_t cmd) {
+    digitalWrite(TFT_DC, LOW);
+    digitalWrite(TFT_CS, LOW);
+    spi->write(cmd);
+    digitalWrite(TFT_CS, HIGH);
+  }
+  
+  void writeData(uint8_t data) {
+    digitalWrite(TFT_DC, HIGH);
+    digitalWrite(TFT_CS, LOW);
+    spi->write(data);
+    digitalWrite(TFT_CS, HIGH);
+  }
+  
+  void writeData16(uint16_t data) {
+    digitalWrite(TFT_DC, HIGH);
+    digitalWrite(TFT_CS, LOW);
+    spi->write(data >> 8);
+    spi->write(data & 0xFF);
+    digitalWrite(TFT_CS, HIGH);
+  }
+
+public:
+  ST7735Display() {
+    spi = &SPI;
+  }
+  
+  void init() {
+    // Initialize GPIO
+    pinMode(TFT_CS, OUTPUT);
+    pinMode(TFT_RST, OUTPUT);
+    pinMode(TFT_DC, OUTPUT);
+    pinMode(TFT_BL, OUTPUT);
+    
+    // Initialize SPI
+    spi->begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS);
+    spi->setFrequency(10000000);  // 10MHz
+    spi->setDataMode(SPI_MODE0);
+    spi->setBitOrder(SPI_MSBFIRST);
+    
+    // Reset
+    digitalWrite(TFT_RST, HIGH);
+    delay(10);
+    digitalWrite(TFT_RST, LOW);
+    delay(10);
+    digitalWrite(TFT_RST, HIGH);
+    delay(120);
+    
+    // Backlight on
+    digitalWrite(TFT_BL, HIGH);
+    
+    // Init sequence
+    writeCommand(ST7735_SWRESET);
+    delay(150);
+    
+    writeCommand(ST7735_SLPOUT);
+    delay(500);
+    
+    writeCommand(ST7735_FRMCTR1);
+    writeData(0x01);
+    writeData(0x2C);
+    writeData(0x2D);
+    
+    writeCommand(ST7735_INVCTR);
+    writeData(0x07);
+    
+    writeCommand(ST7735_PWCTR1);
+    writeData(0xA2);
+    writeData(0x02);
+    writeData(0x84);
+    
+    writeCommand(ST7735_PWCTR2);
+    writeData(0xC5);
+    
+    writeCommand(ST7735_PWCTR3);
+    writeData(0x0A);
+    writeData(0x00);
+    
+    writeCommand(ST7735_PWCTR4);
+    writeData(0x8A);
+    writeData(0x2A);
+    
+    writeCommand(ST7735_PWCTR5);
+    writeData(0x8A);
+    writeData(0xEE);
+    
+    writeCommand(ST7735_VMCTR1);
+    writeData(0x0E);
+    
+    writeCommand(ST7735_MADCTL);
+    writeData(0xC8);
+    
+    writeCommand(ST7735_COLMOD);
+    writeData(0x05);
+    
+    writeCommand(ST7735_GMCTRP1);
+    writeData(0x02);
+    writeData(0x1c);
+    writeData(0x07);
+    writeData(0x12);
+    writeData(0x37);
+    writeData(0x32);
+    writeData(0x29);
+    writeData(0x2d);
+    writeData(0x29);
+    writeData(0x25);
+    writeData(0x2B);
+    writeData(0x39);
+    writeData(0x00);
+    writeData(0x01);
+    writeData(0x03);
+    writeData(0x10);
+    
+    writeCommand(ST7735_GMCTRN1);
+    writeData(0x03);
+    writeData(0x1d);
+    writeData(0x07);
+    writeData(0x06);
+    writeData(0x2E);
+    writeData(0x2C);
+    writeData(0x29);
+    writeData(0x2D);
+    writeData(0x2E);
+    writeData(0x2E);
+    writeData(0x37);
+    writeData(0x3F);
+    writeData(0x00);
+    writeData(0x00);
+    writeData(0x02);
+    writeData(0x10);
+    
+    writeCommand(ST7735_DISPON);
+    delay(100);
+    
+    fillScreen(TFT_BLACK);
+  }
+  
+  void fillScreen(uint16_t color) {
+    fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, color);
+  }
+  
+  void fillRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+    writeCommand(ST7735_CASET);
+    writeData(0);
+    writeData(x);
+    writeData(0);
+    writeData(x + w - 1);
+    
+    writeCommand(ST7735_RASET);
+    writeData(0);
+    writeData(y);
+    writeData(0);
+    writeData(y + h - 1);
+    
+    writeCommand(ST7735_RAMWR);
+    digitalWrite(TFT_DC, HIGH);
+    digitalWrite(TFT_CS, LOW);
+    
+    for (uint32_t i = 0; i < (w * h); i++) {
+      spi->write(color >> 8);
+      spi->write(color & 0xFF);
+    }
+    
+    digitalWrite(TFT_CS, HIGH);
+  }
+  
+  void drawPixel(uint16_t x, uint16_t y, uint16_t color) {
+    if (x >= SCREEN_WIDTH || y >= SCREEN_HEIGHT) return;
+    fillRect(x, y, 1, 1, color);
+  }
+  
+  void drawRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+    drawHLine(x, y, w, color);
+    drawHLine(x, y + h - 1, w, color);
+    drawVLine(x, y, h, color);
+    drawVLine(x + w - 1, y, h, color);
+  }
+  
+  void drawHLine(uint16_t x, uint16_t y, uint16_t w, uint16_t color) {
+    if (y >= SCREEN_HEIGHT) return;
+    if (x + w > SCREEN_WIDTH) w = SCREEN_WIDTH - x;
+    fillRect(x, y, w, 1, color);
+  }
+  
+  void drawVLine(uint16_t x, uint16_t y, uint16_t h, uint16_t color) {
+    if (x >= SCREEN_WIDTH) return;
+    if (y + h > SCREEN_HEIGHT) h = SCREEN_HEIGHT - y;
+    fillRect(x, y, 1, h, color);
+  }
+  
+  void setCursor(uint16_t x, uint16_t y) {
+    cursorX = x;
+    cursorY = y;
+  }
+  
+  void setTextColor(uint16_t color, uint16_t bgColor) {
+    textColor = color;
+    textBgColor = bgColor;
+  }
+  
+  void setTextSize(uint8_t size) {
+    textSize = size;
+  }
+  
+  void print(const char* str) {
+    while (*str) {
+      if (*str == '\n') {
+        cursorY += (8 * textSize) + 2;
+        cursorX = 0;
+      } else {
+        drawChar(cursorX, cursorY, *str);
+        cursorX += (6 * textSize);
+      }
+      str++;
+    }
+  }
+  
+  void print(String str) {
+    print(str.c_str());
+  }
+  
+  void println(const char* str) {
+    print(str);
+    cursorY += (8 * textSize) + 2;
+    cursorX = 0;
+  }
+  
+  void println(String str) {
+    println(str.c_str());
+  }
+  
+  void printf(const char* format, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    print(buffer);
+  }
+  
+private:
+  uint16_t cursorX = 0, cursorY = 0;
+  uint16_t textColor = TFT_WHITE;
+  uint16_t textBgColor = TFT_BLACK;
+  uint8_t textSize = 1;
+  
+  void drawChar(uint16_t x, uint16_t y, char c) {
+    // Simple 5x8 character rendering
+    if (c < 32 || c > 126) return;
+    
+    // For now, fill a small rectangle as placeholder
+    if (textSize == 1) {
+      fillRect(x, y, 5, 8, textBgColor);
+    } else {
+      fillRect(x, y, 5 * textSize, 8 * textSize, textBgColor);
+    }
+  }
+};
+
+// Global display object
+ST7735Display tft;
+
 // ===== FUNCTION PROTOTYPES =====
 void setupDisplay();
 void setupSD();
@@ -87,6 +388,7 @@ void handleUpload();
 void handleGamesList();
 void handleFileDelete();
 void listSDFiles();
+void handleMenuSelection();
 
 void setup() {
   Serial.begin(115200);
@@ -133,16 +435,11 @@ void setupDisplay() {
   Serial.println("[DISPLAY] Initializing TFT 1.8\" Display (ESP32-S3)...");
   
   tft.init();
-  tft.setRotation(1);  // Landscape (160x128)
   tft.fillScreen(TFT_BLACK);
-  
-  pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, HIGH);  // Backlight ON
-  
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(1);
-  tft.setCursor(0, 0);
-  tft.println("ESP32-S3 Initializing...");
+  tft.setCursor(10, 50);
+  tft.print("Initializing...");
   
   Serial.println("[DISPLAY] Display initialized successfully");
   delay(1000);
@@ -161,10 +458,10 @@ void setupSD() {
     tft.fillScreen(TFT_BLACK);
     tft.setTextColor(TFT_RED, TFT_BLACK);
     tft.setCursor(10, 10);
-    tft.println("SD Card NOT FOUND!");
+    tft.print("SD Card NOT FOUND!");
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setCursor(10, 30);
-    tft.println("Insert SD card");
+    tft.print("Insert SD card");
     return;
   }
   
@@ -290,40 +587,40 @@ void displayMainMenu() {
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   tft.setTextSize(2);
   
-  tft.setCursor(20, 10);
-  tft.println("ESP32-S3");
-  tft.setCursor(5, 30);
+  tft.setCursor(35, 10);
+  tft.print("ESP32-S3");
+  tft.setCursor(20, 30);
   tft.setTextSize(1);
-  tft.println("Game Engine");
+  tft.print("Game Engine");
   
   tft.setTextSize(1);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   
   // Menu items
-  drawButton(5, 50, 150, 25, "Load Game (SD)", TFT_GREEN, currentMenuSelection == 0);
-  drawButton(5, 82, 150, 25, "WiFi Upload", TFT_BLUE, currentMenuSelection == 1);
-  drawButton(5, 114, 150, 25, "Settings", TFT_CYAN, currentMenuSelection == 2);
+  drawButton(5, 50, 118, 25, "Load Game (SD)", TFT_GREEN, currentMenuSelection == 0);
+  drawButton(5, 80, 118, 25, "WiFi Upload", TFT_BLUE, currentMenuSelection == 1);
+  drawButton(5, 110, 118, 25, "Settings", TFT_CYAN, currentMenuSelection == 2);
   
   // Status bar
-  tft.drawFastHLine(0, 145, 160, TFT_DARKGREY);
+  tft.drawHLine(0, 145, SCREEN_WIDTH, TFT_DARKGREY);
   
   if (!sdCardReady) {
     tft.setTextColor(TFT_RED, TFT_BLACK);
     tft.setCursor(5, 150);
     tft.setTextSize(1);
-    tft.println("SD: Error");
+    tft.print("SD: Error");
   } else {
     tft.setTextColor(TFT_GREEN, TFT_BLACK);
     tft.setCursor(5, 150);
     tft.setTextSize(1);
-    tft.println("SD: Ready");
+    tft.print("SD: Ready");
   }
   
   if (wifiConnected) {
     tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    tft.setCursor(120, 150);
+    tft.setCursor(85, 150);
     tft.setTextSize(1);
-    tft.println("WiFi: On");
+    tft.print("WiFi: On");
   }
 }
 
@@ -333,13 +630,13 @@ void displayGamesList() {
   tft.setTextSize(1);
   
   tft.setCursor(5, 5);
-  tft.println("GAMES ON SD:");
+  tft.print("GAMES ON SD:");
   
   File root = SD.open("/games");
   if (!root || !root.isDirectory()) {
     tft.setTextColor(TFT_RED, TFT_BLACK);
     tft.setCursor(5, 30);
-    tft.println("No /games dir!");
+    tft.print("No /games dir!");
     return;
   }
   
@@ -355,7 +652,7 @@ void displayGamesList() {
       if (name.length() > 20) {
         name = name.substring(0, 17) + "...";
       }
-      tft.println(name);
+      tft.print(name);
       y += 12;
       gameCount++;
     }
@@ -365,9 +662,9 @@ void displayGamesList() {
   if (gameCount == 0) {
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
     tft.setCursor(5, 35);
-    tft.println("No games found");
+    tft.print("No games found");
     tft.setCursor(5, 50);
-    tft.println("Use WiFi to upload");
+    tft.print("Use WiFi to upload");
   }
 }
 
@@ -377,24 +674,24 @@ void displayWiFiMenu() {
   tft.setTextSize(1);
   
   tft.setCursor(10, 10);
-  tft.println("WiFi Upload");
+  tft.print("WiFi Upload");
   
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setCursor(10, 35);
-  tft.println("Network:");
+  tft.print("Network:");
   tft.setCursor(15, 50);
-  tft.println("ESP32-S3-GameEngine");
+  tft.print("ESP32-S3-GameEngine");
   
   tft.setCursor(10, 70);
-  tft.println("Password:");
+  tft.print("Password:");
   tft.setCursor(15, 85);
-  tft.println("password123");
+  tft.print("password123");
   
   tft.setCursor(10, 110);
-  tft.println("Connect then visit:");
+  tft.print("Connect then visit:");
   tft.setCursor(10, 125);
   tft.setTextColor(TFT_CYAN, TFT_BLACK);
-  tft.println("192.168.4.1");
+  tft.print("192.168.4.1");
 }
 
 void drawButton(int x, int y, int w, int h, String text, uint16_t color, bool selected) {
@@ -407,7 +704,7 @@ void drawButton(int x, int y, int w, int h, String text, uint16_t color, bool se
   }
   
   tft.setCursor(x + 5, y + 8);
-  tft.println(text);
+  tft.print(text);
 }
 
 void handleMenuSelection() {
@@ -511,7 +808,7 @@ void handleRoot() {
   html += "<div class='info'>";
   html += "<strong>Платформа:</strong> ESP32-S3 N16R8<br>";
   html += "<strong>Flash:</strong> 16MB | <strong>RAM:</strong> 8MB PSRAM<br>";
-  html += "<strong>Дисплей:</strong> 1.8\" TFT (160x128)<br>";
+  html += "<strong>Дисплей:</strong> 1.8\" TFT (128x160)<br>";
   html += "</div>";
   
   html += "<div class='upload-form'>";
